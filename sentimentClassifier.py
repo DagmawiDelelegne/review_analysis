@@ -11,7 +11,7 @@ import os
 
 load_dotenv()
 
-aspect_extractor = ATEPC.AspectExtractor('multilingual')
+aspect_extractor = ATEPC.AspectExtractor('english')
 
 # Global storage for review snippets (organized by aspect)
 # This will be updated each time analyze is clicked.
@@ -57,8 +57,9 @@ def sentiment_classifier(text):
     if not aspect_instance:
         print("No aspects found in the input text.")
         return pd.DataFrame(columns=["Aspect", "Positive", "Negative", "Neutral", "Total"]), gr.update(choices=[], value=None)
-
-    table = pd.DataFrame.from_dict(aspect_instance, orient="index")
+    
+    aspect_choices = sorted(aspect_instance.keys(), key=str.lower) 
+    table = pd.DataFrame.from_dict(aspect_instance, orient="index").loc[aspect_choices]
     # Update dropdown choices with found aspects
     aspect_choices = list(aspect_instance.keys())
     print(f"Found aspects: {aspect_choices}")
