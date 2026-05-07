@@ -11,16 +11,18 @@ import os
 
 load_dotenv()
 
-aspect_extractor = ATEPC.AspectExtractor('english')
+aspect_extractor = ATEPC.AspectExtractor('English')
 
 # Global storage for review snippets (organized by aspect)
 # This will be updated each time analyze is clicked.
 aspect_reviews_storage = {}
+global_aspect_counts = {}
 
 def sentiment_classifier(text):
-    global aspect_reviews_storage
+    global aspect_reviews_storage, global_aspect_counts
     # Reset storage for new batch
     aspect_reviews_storage = {}
+    global_aspect_counts = {}
     
     # Split by double newlines so reviews can contain their own line breaks
     reviews = text.strip().split("\n\n")
@@ -57,33 +59,49 @@ def sentiment_classifier(text):
     if not aspect_instance:
         print("No aspects found in the input text.")
         return pd.DataFrame(columns=["Aspect", "Positive", "Negative", "Neutral", "Total"]), gr.update(choices=[], value=None)
+    # Setting up table so that the columns are in the correct order and sorted alphabetically
+    global_aspect_counts = aspect_instance
+    aspect_choices = sorted(aspect_instance.keys(), key=str.lower)
+    table = pd.DataFrame.from_dict(aspect_instance, orient="index")
+    table = table[["Aspect", "Positive", "Negative", "Neutral", "Total"]]
+    table = table.loc[aspect_choices]
     
-    aspect_choices = sorted(aspect_instance.keys(), key=str.lower) 
-    table = pd.DataFrame.from_dict(aspect_instance, orient="index").loc[aspect_choices]
-    # Update dropdown choices with found aspects
-   
+    aspect_choices = ["All Aspects"] + aspect_choices
     print(f"Found aspects: {aspect_choices}")
-    return table, gr.update(choices=aspect_choices, value=aspect_choices[0] if aspect_choices else None)
+    return gr.update(value=table), gr.update(choices=aspect_choices, value=aspect_choices[0] if aspect_choices else None)
 
 def summarize_aspect(aspect):
     token = os.getenv("HF_TOKEN")
     if not token:
-        return "Error: No Hugging Face token found. Please set the HF_TOKEN environment variable"
-    if not aspect or aspect not in aspect_reviews_storage:
-        return "No reviews found for this aspect."
+        return "Error: No Hugging Face token found. Please set the HF_TOKEN environment variable", "N/A", "N/A"
+    if not aspect or (aspect != "All Aspects" and aspect not in aspect_reviews_storage):
+        return "No reviews found for this aspect.", "N/A", "N/A"
 
     client = InferenceClient(token=token)
-    # Limit to 10 snippets
-    # To prevent the LLM from getting overwhelmed, this can be adjusted if needed.
-    reviews_text = "\n- ".join(aspect_reviews_storage[aspect][:10]) 
-    # Current prompt to test for generatic aspect summaries.
+    
+    if aspect == "All Aspects":
+        # Combine snippets from all aspects
+        # Limit can be adjusted if needed.
+        all_snippets = []
+        for a in aspect_reviews_storage:
+            all_snippets.extend(aspect_reviews_storage[a][:3])
+        reviews_text = "\n- ".join(all_snippets[:15])
+        target_desc = "all features and the overall product"
+    else:
+        reviews_text = "\n- ".join(aspect_reviews_storage[aspect][:10]) 
+        target_desc = f"the '{aspect}'"
+
+    # Current prompt to test generic aspect summaries.
     # Can be adjusted in the future if we're not happy with the results.
     prompt = (
         f"You are a sentiment analyst. Based only on the following reviews, "
-        f"Summarize what people say about the '{aspect}'.\n"
-        f"Do not mention any other product features or aspects besides '{aspect}'.\n\n"
+        f"summarize what people say about {target_desc}.\n"
+        f"Do not mention any other product features or aspects besides {target_desc}.\n"
+        f"At the end of your response, provide a predicted star rating (1-5) based on the sentiment.\n\n"
         f"Reviews:\n- {reviews_text}\n\n"
-        f"Summary focus only on '{aspect}':"
+        f"Format your response as follows:\n"
+        f"Summary: [Your 2-sentence summary]\n"
+        f"Predicted Rating: [X/5]"
     )
     
     try:
@@ -91,11 +109,32 @@ def summarize_aspect(aspect):
         response = client.chat_completion(
             messages=messages,
             model="meta-llama/Llama-3.1-8B-Instruct",
-            max_tokens=150
+            max_tokens=200
         )
-        return response.choices[0].message.content
+        result_text = response.choices[0].message.content
+        
+        # Calculate actual average from pyABSA counts
+        total_pos = sum(counts["Positive"] for counts in global_aspect_counts.values())
+        total_neg = sum(counts["Negative"] for counts in global_aspect_counts.values())
+        total_neu = sum(counts["Neutral"] for counts in global_aspect_counts.values())
+        total_all = total_pos + total_neg + total_neu
+        
+        if total_all > 0:
+            actual_avg = (total_pos * 5 + total_neu * 3 + total_neg * 1) / total_all
+            actual_avg_str = f"{actual_avg:.1f}/5"
+        else:
+            actual_avg_str = "N/A"
+
+        # Parse predicted rating from LLM response
+        predicted_rating = "Unknown"
+        if "Predicted Rating:" in result_text:
+            predicted_rating = result_text.split("Predicted Rating:")[-1].strip()
+            result_text = result_text.split("Predicted Rating:")[0].replace("Summary:", "").strip()
+
+        return result_text, predicted_rating, actual_avg_str
+
     except Exception as e:
-        return f"Error calling LLM: {str(e)}"
+        return f"Error calling LLM: {str(e)}", "Error", "Error"
 
 
 with gr.Blocks(title="Aspect Based Sentiment Review Tool") as demo:
@@ -120,6 +159,9 @@ with gr.Blocks(title="Aspect Based Sentiment Review Tool") as demo:
         
         with gr.Column():
             summary_output = gr.Textbox(label="Llama 3.1 Summary", lines=4)
+            with gr.Row():
+                predicted_rating_box = gr.Textbox(label="LLM Predicted Rating")
+                actual_rating_box = gr.Textbox(label="Actual Average Rating (pyABSA)")
 
     analyze_btn.click(
         fn=sentiment_classifier,
@@ -130,7 +172,7 @@ with gr.Blocks(title="Aspect Based Sentiment Review Tool") as demo:
     summarize_btn.click(
         fn=summarize_aspect,
         inputs=[aspect_dropdown],
-        outputs=[summary_output]
+        outputs=[summary_output, predicted_rating_box, actual_rating_box]
     )
 
 if __name__ == "__main__":
