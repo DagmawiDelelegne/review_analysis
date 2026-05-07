@@ -5,3 +5,5 @@ gradio
 pandas
 huggingface_hub
 python-dotenv
+protobuf==3.20.3
+sentencepiece
