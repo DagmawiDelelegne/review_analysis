@@ -61,7 +61,7 @@ def sentiment_classifier(text):
     aspect_choices = sorted(aspect_instance.keys(), key=str.lower) 
     table = pd.DataFrame.from_dict(aspect_instance, orient="index").loc[aspect_choices]
     # Update dropdown choices with found aspects
-    aspect_choices = list(aspect_instance.keys())
+   
     print(f"Found aspects: {aspect_choices}")
     return table, gr.update(choices=aspect_choices, value=aspect_choices[0] if aspect_choices else None)
 
