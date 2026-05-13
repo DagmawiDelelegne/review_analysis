@@ -3,3 +3,7 @@ transformers==4.29.0
 tokenizers==0.13.3
 gradio
 pandas
+huggingface_hub
+python-dotenv
+protobuf==3.20.3
+sentencepiece
