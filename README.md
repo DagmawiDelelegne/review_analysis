@@ -34,7 +34,7 @@ Then press **Analyze Sentiments** to extract product aspects. For a summary, sel
 ![LLM aspect summary](image-1.png)
 
 ## Setup
-- Python 3.11 is recommended.
+- Python 3.11 is required. Otherwise, libraries may fail to install if using a newer version.
 - Create a virtual environment, activate it, and install the requirements.
 
 ```bash
